@@ -33,23 +33,22 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	pages, images, err := crawl(startURL)
-	if err != nil {
-		panic(err)
-	}
-	for _, page := range pages {
-		fmt.Println(page)
-	}
-	fmt.Println("============================")
-	for _, image := range images {
-		fmt.Println(image)
-	}
+	c := make(chan string)
+	go func() {
+		for url := range c {
+			go crawl(url, c)
+		}
+	}()
+	c <- startURL
+	var input string
+	fmt.Scanln(&input)
+	fmt.Println("Done")
 }
 
-func crawl(baseURL string) (pages, images []string, err error) {
+func crawl(baseURL string, c chan<- string) {
 	resp, err := http.Get(baseURL)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 	defer resp.Body.Close()
 	content := html.NewTokenizer(resp.Body)
@@ -59,13 +58,14 @@ func crawl(baseURL string) (pages, images []string, err error) {
 			page, err := scrapeToken(token, a, baseURL)
 			if err == nil {
 				if ok := withinDomain(page, baseURL); ok {
-					pages = append(pages, page)
+					fmt.Println(page)
+					c <- page
 				}
 				goto next
 			}
 			image, err := scrapeToken(token, img, baseURL)
 			if err == nil {
-				images = append(images, image)
+				fmt.Println(image)
 				goto next
 			}
 		}
@@ -125,7 +125,7 @@ func handleEdgeCases(link string) bool {
 		return false
 	case strings.Contains(link, "mailto:"):
 		return false
-	case strings.Contains(link, "javascript:void(0)"):
+	case strings.Contains(link, "javascript:"):
 		return false
 	default:
 		return true
