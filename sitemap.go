@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -16,6 +17,7 @@ const (
 	imageTag = "img"
 	hrefAttr = "href"
 	srcAttr  = "src"
+	ncpu     = 8
 )
 
 type node struct {
@@ -26,24 +28,25 @@ var a = node{tag: linkTag, attr: hrefAttr}
 var img = node{tag: imageTag, attr: srcAttr}
 
 func main() {
+	runtime.GOMAXPROCS(ncpu)
 	startURL, err := getArgs()
 	if err != nil {
 		panic(err)
 	}
-	pageUrls, imageUrls, err := scrapeURL(startURL)
+	pages, images, err := crawl(startURL)
 	if err != nil {
 		panic(err)
 	}
-	for _, url := range pageUrls {
-		fmt.Println(url)
+	for _, page := range pages {
+		fmt.Println(page)
 	}
 	fmt.Println("============================")
-	for _, url := range imageUrls {
-		fmt.Println(url)
+	for _, image := range images {
+		fmt.Println(image)
 	}
 }
 
-func scrapeURL(baseURL string) (pages, images []string, err error) {
+func crawl(baseURL string) (pages, images []string, err error) {
 	resp, err := http.Get(baseURL)
 	if err != nil {
 		return nil, nil, err
@@ -55,12 +58,14 @@ func scrapeURL(baseURL string) (pages, images []string, err error) {
 			token := content.Token()
 			page, err := scrapeToken(token, a, baseURL)
 			if err == nil {
-				pages = append(pages, page)
+				if ok := withinDomain(page, baseURL); ok {
+					pages = append(pages, page)
+				}
 				goto next
 			}
 			image, err := scrapeToken(token, img, baseURL)
 			if err == nil {
-				pages = append(pages, image)
+				images = append(images, image)
 				goto next
 			}
 		}
@@ -85,32 +90,45 @@ func scrapeToken(token html.Token, node node, baseURL string) (string, error) {
 	return "", errors.New("Un-wanted tag")
 }
 
+func withinDomain(link string, baseURL string) bool {
+	domain, _ := url.Parse(baseURL)
+	candidate, _ := url.Parse(link)
+	return domain.Host == candidate.Host
+}
+
 func fixURLProtocol(link string, baseURL string) (string, error) {
+	if ok := handleEdgeCases(link); !ok {
+		return "", errors.New("False link edge case caught")
+	}
+	if strings.Index(link, "http") == 0 {
+		return link, nil
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return "", errors.New("Invalid URI")
+	}
+	home := u.Scheme + "://" + u.Host + "/"
+	for link[:1] == "/" {
+		if len(link) < 2 {
+			break
+		}
+		link = strings.TrimPrefix(link, "/")
+	}
+	return home + link, nil
+}
+
+func handleEdgeCases(link string) bool {
 	switch {
 	case link == "/":
-		return baseURL, nil
+		return false
 	case link == "#":
-		return "", errors.New("Redundant fragment found")
+		return false
 	case strings.Contains(link, "mailto:"):
-		return "", errors.New("Mail scheme URI")
+		return false
 	case strings.Contains(link, "javascript:void(0)"):
-		return "", errors.New("False link")
-	case strings.Index(link, "http") == 0:
-		return link, nil
+		return false
 	default:
-		u, err := url.Parse(baseURL)
-		if err != nil {
-			return "", errors.New("Invalid URI")
-		}
-		// Constructing the base URL without paths / fragments
-		home := u.Scheme + "://" + u.Host + "/"
-		for link[:1] == "/" {
-			if len(link) < 2 {
-				break
-			}
-			link = strings.TrimPrefix(link, "/")
-		}
-		return home + link, nil
+		return true
 	}
 }
 

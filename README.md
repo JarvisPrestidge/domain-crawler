@@ -1,2 +1,2 @@
-# sitemap - Single domain web crawler
+# sitemap
 Simple single domain web crawler implemented in Go
