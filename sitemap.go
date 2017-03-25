@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/net/html"
 )
@@ -17,7 +18,6 @@ const (
 	imageTag = "img"
 	hrefAttr = "href"
 	srcAttr  = "src"
-	ncpu     = 8
 )
 
 type node struct {
@@ -28,25 +28,51 @@ var a = node{tag: linkTag, attr: hrefAttr}
 var img = node{tag: imageTag, attr: srcAttr}
 
 func main() {
-	runtime.GOMAXPROCS(ncpu)
+	// Get command line args
 	startURL, err := getArgs()
-	if err != nil {
-		panic(err)
-	}
-	c := make(chan string)
+	check(err)
+	startURL, err = fixURLProtocol(startURL, startURL)
+	check(err)
+	// Maps for holding references to urls
+	pages := make(map[string]struct{})
+	images := make(map[string]struct{})
+	// Channel for pages and images
+	cp := make(chan string)
+	ci := make(chan string)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		for url := range c {
-			go crawl(url, c)
+		for {
+			select {
+			case page := <-cp:
+				if _, ok := pages[page]; !ok {
+					pages[page] = struct{}{}
+					wg.Add(1)
+					go crawl(page, cp, ci, &wg)
+					fmt.Println(page)
+				}
+			case <-time.After(time.Second * 5):
+				wg.Done()
+				break
+			}
 		}
 	}()
-	c <- startURL
-	var input string
-	fmt.Scanln(&input)
-	fmt.Println("Done")
+	go func() {
+		for image := range ci {
+			if _, ok := images[image]; !ok {
+				images[image] = struct{}{}
+				fmt.Println(image)
+			}
+		}
+	}()
+	cp <- startURL
+	wg.Wait()
+	fmt.Println("Done!")
 }
 
-func crawl(baseURL string, c chan<- string) {
-	resp, err := http.Get(baseURL)
+func crawl(startURL string, cp, ci chan<- string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	resp, err := http.Get(startURL)
 	if err != nil {
 		return
 	}
@@ -55,17 +81,16 @@ func crawl(baseURL string, c chan<- string) {
 	for tt := content.Next(); isValidToken(tt); {
 		if isStartTagToken(tt) {
 			token := content.Token()
-			page, err := scrapeToken(token, a, baseURL)
+			page, err := scrapeToken(token, a, startURL)
 			if err == nil {
-				if ok := withinDomain(page, baseURL); ok {
-					fmt.Println(page)
-					c <- page
+				if ok := withinDomain(page, startURL); ok {
+					cp <- page
 				}
 				goto next
 			}
-			image, err := scrapeToken(token, img, baseURL)
+			image, err := scrapeToken(token, img, startURL)
 			if err == nil {
-				fmt.Println(image)
+				ci <- image
 				goto next
 			}
 		}
@@ -75,13 +100,13 @@ func crawl(baseURL string, c chan<- string) {
 	return
 }
 
-func scrapeToken(token html.Token, node node, baseURL string) (string, error) {
+func scrapeToken(token html.Token, node node, startURL string) (string, error) {
 	if isTag(token, node.tag) {
 		val, err := getAttribute(token, node.attr)
 		if err != nil {
 			return "", errors.New("No attribute value found")
 		}
-		url, err := fixURLProtocol(val, baseURL)
+		url, err := fixURLProtocol(val, startURL)
 		if err != nil {
 			return "", err
 		}
@@ -90,31 +115,40 @@ func scrapeToken(token html.Token, node node, baseURL string) (string, error) {
 	return "", errors.New("Un-wanted tag")
 }
 
-func withinDomain(link string, baseURL string) bool {
-	domain, _ := url.Parse(baseURL)
-	candidate, _ := url.Parse(link)
+func withinDomain(link string, startURL string) bool {
+	domain, err := url.Parse(startURL)
+	if err != nil {
+		return false
+	}
+	candidate, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
 	return domain.Host == candidate.Host
 }
 
-func fixURLProtocol(link string, baseURL string) (string, error) {
-	if ok := handleEdgeCases(link); !ok {
+func fixURLProtocol(link string, startURL string) (string, error) {
+	switch {
+	case !handleEdgeCases(link):
 		return "", errors.New("False link edge case caught")
-	}
-	if strings.Index(link, "http") == 0 {
+	case strings.Index(link, "http") == 0:
 		return link, nil
-	}
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return "", errors.New("Invalid URI")
-	}
-	home := u.Scheme + "://" + u.Host + "/"
-	for link[:1] == "/" {
-		if len(link) < 2 {
-			break
+	case strings.Index(link, "www") == 0:
+		return "http://" + link, nil
+	default:
+		d, err := url.Parse(startURL)
+		if err != nil {
+			return "", errors.New("Invalid URI")
 		}
-		link = strings.TrimPrefix(link, "/")
+		home := d.Scheme + "://" + d.Host + "/"
+		for link[:1] == "/" {
+			if len(link) < 2 {
+				break
+			}
+			link = strings.TrimPrefix(link, "/")
+		}
+		return home + link, nil
 	}
-	return home + link, nil
 }
 
 func handleEdgeCases(link string) bool {
@@ -161,4 +195,10 @@ func isStartTagToken(tt html.TokenType) bool {
 
 func isTag(token html.Token, tag string) bool {
 	return token.Data == tag
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
 }
