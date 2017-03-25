@@ -4,11 +4,13 @@ Simple command line program implemented in Go to crawl a single domain.
 
 ## Usage
 
-The program has a single input parameter; a url with which to crawl.
+The program takes a single argument - a url with which to crawl.
 
 Example: 
 
 `sitemap http://golangweekly.com`
+
+and outputs the scraped URLs to a *.sitemap file in the output folder.
 
 
 ## How to run
