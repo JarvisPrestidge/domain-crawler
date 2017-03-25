@@ -4,7 +4,7 @@ Simple command line program implemented in Go to crawl a single domain.
 
 ## Usage
 
-sitemap \<insert domain to crawl>
+The program has a single input parameter; a url with which to crawl.
 
 Example: 
 
@@ -18,13 +18,13 @@ Example:
 
 If you have Go installed on your machine (with the correct GOPATH and GOROOT environment variables set) and the recommended Go workspace structure set up. Then it's as easy as cloning the repo, for example:
 
-`git clone https://github.com/JarvisPrestidge/sitemap.git $GOPATH/src/github.com/jarvisprestidge/sitemap`
+`git clone https://github.com/jarvisprestidge/sitemap.git` 
 
-Then you have a couple of options to run the program.
+Then `cd` into the repo and now you have a couple of options to run the program.
 
  ***Go Install***
  
- You can install the binary into your `$GOPATH/bin` folder by `cd`'ing into the repo and running the following:
+ You can install the binary into your `$GOPATH/bin` folder running the following in the root of the package:
  
 `go install`
 
@@ -42,7 +42,6 @@ The `sitemap` binary can then be found in the workspaces `/bin` folder (or avail
 
 * ### Build Docker container (dockerfile)
 
- ***Linux***
 
 Have a working version of docker running installed.
 
