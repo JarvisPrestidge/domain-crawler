@@ -33,8 +33,8 @@ func main() {
 	// Get command line args
 	arg, err := getArgs()
 	check(err)
-	// Clean up incoming url
-	startURL, domain, err := fixURL(arg)
+	// Clean incoming url
+	startURL, domain, err := formatURL(arg)
 	fmt.Println(startURL)
 	check(err)
 	// Maps for holding references to urls
@@ -106,7 +106,6 @@ func crawl(baseURL string, cp, ci chan<- string, wg *sync.WaitGroup) {
 		return
 	}
 	defer resp.Body.Close()
-	// tokenize the repsonse
 	content := html.NewTokenizer(resp.Body)
 	// iterate over valid tokens
 	for tt := content.Next(); isValidToken(tt); {
@@ -145,7 +144,7 @@ func scrapeToken(token html.Token, node node, baseURL string) (string, error) {
 			return "", errors.New("No attribute value found")
 		}
 		// fix the protocol for none absolute and false urls
-		url, err := fixURLProtocol(val, baseURL)
+		url, err := formatURLProtocol(val, baseURL)
 		if err != nil {
 			return "", err
 		}
@@ -167,8 +166,8 @@ func isWithinDomain(link string, baseURL string) bool {
 	return domain.Host == candidate.Host
 }
 
-// fixURLProtocol fixes none absolute urls and handles url related edge cases
-func fixURLProtocol(link string, baseURL string) (string, error) {
+// formatURLProtocol fixes none absolute urls and handles url related edge cases
+func formatURLProtocol(link string, baseURL string) (string, error) {
 	switch {
 	case !handleEdgeCases(link):
 		return "", errors.New("False link edge case caught")
@@ -231,17 +230,21 @@ func getArgs() (string, error) {
 	return "", errors.New("Incorrect command line arguments passed")
 }
 
-// fixURL fixes that input urls from getArgs() or errors
+// formatURL fixes that input urls from getArgs() or errors
 // it returnt the fixed link and the links host domain without paths
-func fixURL(link string) (string, string, error) {
+func formatURL(link string) (string, string, error) {
 	u, err := url.Parse(link)
-	check(err)
+	if err != nil {
+		return "", "", errors.New("Invalid URL")
+	}
 	// if the link isn't absolute then prepend with a valid scheme
 	if !u.IsAbs() {
 		link = "http://" + link
 	}
 	d, err := url.Parse(link)
-	check(err)
+	if err != nil {
+		return "", "", errors.New("Invalid URL")
+	}
 	return d.String(), d.Host, nil
 }
 

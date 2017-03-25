@@ -1,0 +1,17 @@
+
+Testing:
+    ✔ isTag() @done (23/02/2017, 18:49:24)
+    ✔ isStartTagToken() @done (25/03/2017, 15:10:24)
+    ✔ isValidToken() @done (25/03/2017, 16:22:25)
+    ☐ formatURL()
+    ✔ getArgs() @done (25/03/2017, 18:49:55)
+    ✔ getAttributes() @done (25/03/2017, 18:50:22)
+    ☐ handleEdgeCases()
+    ☐ formatURLProtocol()
+    ☐ isWithinDomain()
+    ☐ scrapeToken()
+    ☐ crawl()
+    ☐ main()
+
+Refactor:
+    ☐
