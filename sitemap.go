@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,71 +25,105 @@ type node struct {
 	tag, attr string
 }
 
+// structs representing <a> and <img> elements
 var a = node{tag: linkTag, attr: hrefAttr}
 var img = node{tag: imageTag, attr: srcAttr}
 
 func main() {
 	// Get command line args
-	startURL, err := getArgs()
+	arg, err := getArgs()
 	check(err)
-	startURL, err = fixURLProtocol(startURL, startURL)
+	// Clean up incoming url
+	startURL, domain, err := fixURL(arg)
+	fmt.Println(startURL)
 	check(err)
 	// Maps for holding references to urls
 	pages := make(map[string]struct{})
 	images := make(map[string]struct{})
-	// Channel for pages and images
+	// Channels for pages and images
 	cp := make(chan string)
 	ci := make(chan string)
+	// Creating file name
+	s := strings.Split(domain, ".")
+	filename := s[len(s)-2]
+	// Create an output file
+	f, err := os.Create("output/" + filename + ".sitemap")
+	check(err)
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	// Wait on goroutines to finish
 	var wg sync.WaitGroup
 	wg.Add(1)
+	counter := 0
+	// Closure gorourtine to listen on incoming channels
 	go func() {
 		for {
+			// listen on channel with select until timeout
 			select {
 			case page := <-cp:
+				// check if already scraped
 				if _, ok := pages[page]; !ok {
+					// if not, add it to pages, crawl it and write to output
 					pages[page] = struct{}{}
 					wg.Add(1)
 					go crawl(page, cp, ci, &wg)
-					fmt.Println(page)
+					fmt.Fprintln(w, page)
+					counter++
 				}
 			case <-time.After(time.Second * 5):
+				// After 5 seconds of no incoming messages finish
 				wg.Done()
 				break
 			}
 		}
 	}()
+	// same for the image channel without crawling
 	go func() {
 		for image := range ci {
 			if _, ok := images[image]; !ok {
 				images[image] = struct{}{}
-				fmt.Println(image)
+				fmt.Fprintln(w, image)
+				counter++
 			}
 		}
 	}()
+	// Pass out starting url onto the page channel
 	cp <- startURL
+	// Wait for goroutines to finish
 	wg.Wait()
-	fmt.Println("Done!")
+	// Flush urls to file
+	w.Flush()
+	fmt.Println("Successfully crawled", counter, "links!")
 }
 
-func crawl(startURL string, cp, ci chan<- string, wg *sync.WaitGroup) {
+// crawl input url and report back on seperate channels the valid crawlalbe uls
+func crawl(baseURL string, cp, ci chan<- string, wg *sync.WaitGroup) {
+	// decrement the waitgroup counter on function exit
 	defer wg.Done()
-	resp, err := http.Get(startURL)
+	// get the response
+	resp, err := http.Get(baseURL)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
+	// tokenize the repsonse
 	content := html.NewTokenizer(resp.Body)
+	// iterate over valid tokens
 	for tt := content.Next(); isValidToken(tt); {
+		// look only for start tokens i.e. <a> or <img>
 		if isStartTagToken(tt) {
+			// scrpae the attirbutes from the tags
 			token := content.Token()
-			page, err := scrapeToken(token, a, startURL)
+			page, err := scrapeToken(token, a, baseURL)
 			if err == nil {
-				if ok := withinDomain(page, startURL); ok {
+				// check with the domain
+				if ok := isWithinDomain(page, baseURL); ok {
 					cp <- page
 				}
 				goto next
 			}
-			image, err := scrapeToken(token, img, startURL)
+			// same for images
+			image, err := scrapeToken(token, img, baseURL)
 			if err == nil {
 				ci <- image
 				goto next
@@ -100,13 +135,17 @@ func crawl(startURL string, cp, ci chan<- string, wg *sync.WaitGroup) {
 	return
 }
 
-func scrapeToken(token html.Token, node node, startURL string) (string, error) {
+// scrapeToken takes a token and a node and returns the corresponding url attirbute
+func scrapeToken(token html.Token, node node, baseURL string) (string, error) {
+	// check its the html tag we want
 	if isTag(token, node.tag) {
+		// then get the attribute
 		val, err := getAttribute(token, node.attr)
 		if err != nil {
 			return "", errors.New("No attribute value found")
 		}
-		url, err := fixURLProtocol(val, startURL)
+		// fix the protocol for none absolute and false urls
+		url, err := fixURLProtocol(val, baseURL)
 		if err != nil {
 			return "", err
 		}
@@ -115,8 +154,9 @@ func scrapeToken(token html.Token, node node, startURL string) (string, error) {
 	return "", errors.New("Un-wanted tag")
 }
 
-func withinDomain(link string, startURL string) bool {
-	domain, err := url.Parse(startURL)
+// isWithinDomain checks if two urls are from a common host domain
+func isWithinDomain(link string, baseURL string) bool {
+	domain, err := url.Parse(baseURL)
 	if err != nil {
 		return false
 	}
@@ -127,7 +167,8 @@ func withinDomain(link string, startURL string) bool {
 	return domain.Host == candidate.Host
 }
 
-func fixURLProtocol(link string, startURL string) (string, error) {
+// fixURLProtocol fixes none absolute urls and handles url related edge cases
+func fixURLProtocol(link string, baseURL string) (string, error) {
 	switch {
 	case !handleEdgeCases(link):
 		return "", errors.New("False link edge case caught")
@@ -136,21 +177,22 @@ func fixURLProtocol(link string, startURL string) (string, error) {
 	case strings.Index(link, "www") == 0:
 		return "http://" + link, nil
 	default:
-		d, err := url.Parse(startURL)
+		// below is for internal (i.e. none absolute) url
+		u, err := url.Parse(link)
 		if err != nil {
 			return "", errors.New("Invalid URI")
 		}
-		home := d.Scheme + "://" + d.Host + "/"
-		for link[:1] == "/" {
-			if len(link) < 2 {
-				break
-			}
-			link = strings.TrimPrefix(link, "/")
+		base, err := url.Parse(baseURL)
+		if err != nil {
+			return "", errors.New("Invalid URI")
 		}
-		return home + link, nil
+		// resolve and merge the url paths
+		return base.ResolveReference(u).String(), nil
 	}
 }
 
+// handleEdgeCases covers the cases of backward facing urls
+// fragments, invalid schemes and javascript rendered links
 func handleEdgeCases(link string) bool {
 	switch {
 	case link == "/":
@@ -166,8 +208,11 @@ func handleEdgeCases(link string) bool {
 	}
 }
 
+// getAttribute returns the string values of the corresponding token attirbutes
 func getAttribute(token html.Token, attr string) (string, error) {
+	// iterate over all the attributes
 	for _, value := range token.Attr {
+		// until we find the one we're looking for and break
 		if value.Key == attr {
 			if len(value.Val) >= 1 {
 				return value.Val, nil
@@ -178,6 +223,7 @@ func getAttribute(token html.Token, attr string) (string, error) {
 	return "", errors.New("No attribute with key: " + attr + " in token")
 }
 
+// getArgs get the input url to start the crawler
 func getArgs() (string, error) {
 	if args := len(os.Args); args == 2 {
 		return os.Args[1], nil
@@ -185,18 +231,36 @@ func getArgs() (string, error) {
 	return "", errors.New("Incorrect command line arguments passed")
 }
 
+// fixURL fixes that input urls from getArgs() or errors
+// it returnt the fixed link and the links host domain without paths
+func fixURL(link string) (string, string, error) {
+	u, err := url.Parse(link)
+	check(err)
+	// if the link isn't absolute then prepend with a valid scheme
+	if !u.IsAbs() {
+		link = "http://" + link
+	}
+	d, err := url.Parse(link)
+	check(err)
+	return d.String(), d.Host, nil
+}
+
+// isValidToken checks if a token type is an error token (i.e. eof)
 func isValidToken(tt html.TokenType) bool {
 	return tt != html.ErrorToken
 }
 
+//isStartTagToken checks if a token type is a start tag (i.e. <a>)
 func isStartTagToken(tt html.TokenType) bool {
 	return tt == html.StartTagToken
 }
 
+// isTag checks that a token is infact the html element we want based on param 'tag'
 func isTag(token html.Token, tag string) bool {
 	return token.Data == tag
 }
 
+// check is a helper error function
 func check(e error) {
 	if e != nil {
 		panic(e)
