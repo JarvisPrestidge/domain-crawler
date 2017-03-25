@@ -37,21 +37,16 @@ func main() {
 	startURL, domain, err := formatURL(arg)
 	fmt.Println(startURL)
 	check(err)
-	// Maps for holding references to urls
+	// Declare maps and channel for urls
 	pages := make(map[string]struct{})
 	images := make(map[string]struct{})
-	// Channels for pages and images
 	cp := make(chan string)
 	ci := make(chan string)
-	// Creating file name
-	s := strings.Split(domain, ".")
-	filename := s[len(s)-2]
-	// Create an output file
-	f, err := os.Create("output/" + filename + ".sitemap")
-	check(err)
+	// Setup output file / dir
+	f := setupFile(domain)
 	defer f.Close()
 	w := bufio.NewWriter(f)
-	// Wait on goroutines to finish
+	// Setup waitgroup for gorountines
 	var wg sync.WaitGroup
 	wg.Add(1)
 	counter := 0
@@ -246,6 +241,20 @@ func formatURL(link string) (string, string, error) {
 		return "", "", errors.New("Invalid URL")
 	}
 	return d.String(), d.Host, nil
+}
+
+func setupFile(domain string) *os.File {
+	// Creating file name
+	s := strings.Split(domain, ".")
+	filename := s[len(s)-2]
+	// Create dir if not exists
+	if _, err := os.Stat("output"); os.IsNotExist(err) {
+		os.Mkdir("output", os.ModePerm)
+	}
+	// Create an output file
+	file, err := os.Create("output/" + filename + ".sitemap")
+	check(err)
+	return file
 }
 
 // isValidToken checks if a token type is an error token (i.e. eof)
