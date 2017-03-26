@@ -1,8 +1,8 @@
 # Domain Crawler
 
-Simple command line program implemented in Go to crawl a single domain.
+Simple command line program to crawl a single domain implemented in Go.
 
-## Usage
+# Usage
 
 The program takes a single argument - a url with which to crawl.
 
@@ -15,9 +15,9 @@ $ sitemap http://golangweekly.com
 and outputs the scraped URLs to a *.sitemap file in an `output` directory created from where the command is ran.
 
 
-## How to run
+# How to run
 
-* ### Install Go
+* ## Install Go
 
 
 If you have Go installed on your machine (with the correct GOPATH and GOROOT environment variables set) and the recommended Go workspace structure set up. Then it's as easy as cloning the repo, for example:
@@ -52,7 +52,7 @@ $ go run sitemap.go <url to scrape>
 
 > The `sitemap` binary can then be found in the workspaces' bin folder (or available anywhere if you've added this location to your path).
 
-* ### Build Docker container (dockerfile)
+* ## Build Docker container (dockerfile)
 
 Have a working version of docker running installed.
 
@@ -71,7 +71,7 @@ $ docker run -it <name of image>
 This will spin up the container and place you in a shell inside the `go/github.com/jarvisprestidge/sitemap` directory. Then run the program with either of the options detailed above in *How to run*.
 
 
-## Running Tests
+# Running Tests
 
 * #### [Ginkgo](https://onsi.github.io/ginkgo/) - [Github](https://github.com/onsi/ginkgo) - BDD testing framework
 
